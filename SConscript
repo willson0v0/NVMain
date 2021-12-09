@@ -75,9 +75,9 @@ elif 'TARGET_ISA' in env:
     generated_dir = Dir('../protocol')
 
     def MakeIncludeAction(target, source, env):
-        f = file(str(target[0]), 'w')
+        f = open(str(target[0]), 'w')
         for s in source:
-            print >>f, '#include "%s"' % str(s.abspath)
+            print('#include "%s"' % str(s.abspath), file=f)
         f.close()
 
     def MakeInclude(source):
@@ -91,6 +91,6 @@ elif "NVMAINPATH" in os.environ:
     # Nothing to be done here for now.
     pass
 else:
-    print "ERROR: What kind of build is this?"
+    print("ERROR: What kind of build is this?")
     sys.exit(1)
 

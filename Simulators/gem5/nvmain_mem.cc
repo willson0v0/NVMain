@@ -51,6 +51,7 @@
 #include "debug/NVMain.hh"
 #include "debug/NVMainMin.hh"
 #include "config/the_isa.hh"
+#include "base/trace.hh"
 
 using namespace NVM;
 
@@ -62,11 +63,11 @@ using namespace NVM;
 // contiguous region.
 NVMainMemory *NVMainMemory::masterInstance = NULL;
 
-NVMainMemory::NVMainMemory(const Params *p)
+NVMainMemory::NVMainMemory(const Params &p)
     : AbstractMemory(p), clockEvent(this), respondEvent(this),
-      drainManager(NULL), lat(p->atomic_latency),
-      lat_var(p->atomic_variance), nvmain_atomic(p->atomic_mode),
-      NVMainWarmUp(p->NVMainWarmUp), port(name() + ".port", *this)
+      drainManager(NULL), lat(p.atomic_latency),
+      lat_var(p.atomic_variance), nvmain_atomic(p.atomic_mode),
+      NVMainWarmUp(p.NVMainWarmUp), port(name() + ".port", *this)
 {
     char *cfgparams;
     char *cfgvalues;
@@ -79,7 +80,7 @@ NVMainMemory::NVMainMemory(const Params *p)
     m_nvmainPtr = NULL;
     m_nacked_requests = false;
 
-    m_nvmainConfigPath = p->config;
+    m_nvmainConfigPath = p.config;
 
     m_nvmainConfig = new Config( );
 
@@ -104,8 +105,8 @@ NVMainMemory::NVMainMemory(const Params *p)
      *    configparams = tRCD,tCAS,tRP
      *    configvalues = 8,8,8
      */
-    cfgparams = (char *)p->configparams.c_str();
-    cfgvalues = (char *)p->configvalues.c_str();
+    cfgparams = (char *)p.configparams.c_str();
+    cfgvalues = (char *)p.configvalues.c_str();
 
     for( cparam = strtok_r( cfgparams, ",", &saveptr1 ), cvalue = strtok_r( cfgvalues, ",", &saveptr2 )
            ; (cparam && cvalue) ; cparam = strtok_r( NULL, ",", &saveptr1 ), cvalue = strtok_r( NULL, ",", &saveptr2) )
@@ -118,7 +119,7 @@ NVMainMemory::NVMainMemory(const Params *p)
    tBURST = m_nvmainConfig->GetValue( "tBURST" );
    RATE = m_nvmainConfig->GetValue( "RATE" );
 
-   lastWakeup = curTick();
+   lastWakeup = gem5::curTick();
 }
 
 
@@ -163,8 +164,10 @@ NVMainMemory::init()
         statPrinter.forgdb = this;
 
         //registerExitCallback( &statPrinter );
-        ::Stats::registerDumpCallback( &statPrinter );
-        ::Stats::registerResetCallback( &statReseter );
+        // gem5::statistics::registerDumpCallback( &statPrinter );
+        // gem5::statistics::registerResetCallback( &statReseter );
+        gem5::statistics::registerDumpCallback( [this]() {statPrinter.process();} );
+        gem5::statistics::registerResetCallback( [this]() {statReseter.process();} );
 
         SetEventQueue( m_nvmainEventQueue );
         SetStats( m_statsPtr );
@@ -198,7 +201,7 @@ NVMainMemory::init()
         }
 
         /* Setup child and parent modules. */
-        AddChild( m_nvmainPtr );
+            ( m_nvmainPtr );
         m_nvmainPtr->SetParent( this );
         m_nvmainGlobalEventQueue->AddSystem( m_nvmainPtr, m_nvmainConfig );
         m_nvmainPtr->SetConfig( m_nvmainConfig );
@@ -224,9 +227,9 @@ void NVMainMemory::startup()
      *  the first atomic request receieved in recvAtomic().
      */
     if (!masterInstance->clockEvent.scheduled())
-        schedule(masterInstance->clockEvent, curTick() + clock);
+        schedule(masterInstance->clockEvent, gem5::curTick() + clock);
 
-    lastWakeup = curTick();
+    lastWakeup = gem5::curTick();
 }
 
 
@@ -237,15 +240,16 @@ void NVMainMemory::wakeup()
 
     schedule(masterInstance->clockEvent, clockEdge());
 
-    lastWakeup = curTick();
+    lastWakeup = gem5::curTick();
 }
 
 
-BaseSlavePort &
-NVMainMemory::getSlavePort(const std::string& if_name, PortID idx)
+gem5::ResponsePort &
+NVMainMemory::getSlavePort(const std::string& if_name, gem5::PortID idx)
 {
     if (if_name != "port") {
-        return MemObject::getSlavePort(if_name, idx);
+        panic("MemObject::getSlavePort not available, if_name must be port");
+        // return MemObject::getSlavePort(if_name, idx);
     } else {
         return port;
     }
@@ -256,8 +260,8 @@ void NVMainMemory::NVMainStatPrinter::process()
 {
     assert(nvmainPtr != NULL);
 
-    assert(curTick() >= memory->lastWakeup);
-    Tick stepCycles = (curTick() - memory->lastWakeup) / memory->clock;
+    assert(gem5::curTick() >= memory->lastWakeup);
+    gem5::Tick stepCycles = (gem5::curTick() - memory->lastWakeup) / memory->clock;
 
     memory->m_nvmainGlobalEventQueue->Cycle( stepCycles );
 
@@ -277,22 +281,22 @@ void NVMainMemory::NVMainStatReseter::process()
 
 
 NVMainMemory::MemoryPort::MemoryPort(const std::string& _name, NVMainMemory& _memory)
-    : SlavePort(_name, &_memory), memory(_memory), forgdb(_memory)
+    : ResponsePort(_name, &_memory), memory(_memory), forgdb(_memory)
 {
 
 }
 
 
-AddrRangeList NVMainMemory::MemoryPort::getAddrRanges() const
+gem5::AddrRangeList NVMainMemory::MemoryPort::getAddrRanges() const
 {
-    AddrRangeList ranges;
+    gem5::AddrRangeList ranges;
     ranges.push_back(memory.getAddrRange());
     return ranges;
 }
 
 
 void
-NVMainMemory::SetRequestData(NVMainRequest *request, PacketPtr pkt)
+NVMainMemory::SetRequestData(NVMainRequest *request, gem5::PacketPtr pkt)
 {
     uint8_t *hostAddr;
 
@@ -301,8 +305,8 @@ NVMainMemory::SetRequestData(NVMainRequest *request, PacketPtr pkt)
 
     if (pkt->isRead())
     {
-        Request *dataReq = new Request(pkt->getAddr(), pkt->getSize(), 0, Request::funcMasterId);
-        Packet *dataPkt = new Packet(dataReq, MemCmd::ReadReq);
+        gem5::Request *dataReq = new gem5::Request(pkt->getAddr(), pkt->getSize(), 0, gem5::Request::funcRequestorId);
+        gem5::Packet *dataPkt = new gem5::Packet(std::shared_ptr<gem5::Request>(dataReq), gem5::MemCmd::ReadReq);
         dataPkt->allocate();
         doFunctionalAccess(dataPkt);
 
@@ -321,8 +325,8 @@ NVMainMemory::SetRequestData(NVMainRequest *request, PacketPtr pkt)
     }
     else
     {
-        Request *dataReq = new Request(pkt->getAddr(), pkt->getSize(), 0, Request::funcMasterId);
-        Packet *dataPkt = new Packet(dataReq, MemCmd::ReadReq);
+        gem5::Request *dataReq = new gem5::Request(pkt->getAddr(), pkt->getSize(), 0, gem5::Request::funcRequestorId);
+        gem5::Packet *dataPkt = new gem5::Packet(std::shared_ptr<gem5::Request>(dataReq), gem5::MemCmd::ReadReq);
         dataPkt->allocate();
         doFunctionalAccess(dataPkt);
 
@@ -346,8 +350,8 @@ NVMainMemory::SetRequestData(NVMainRequest *request, PacketPtr pkt)
 }
 
 
-Tick
-NVMainMemory::MemoryPort::recvAtomic(PacketPtr pkt)
+gem5::Tick
+NVMainMemory::MemoryPort::recvAtomic(gem5::PacketPtr pkt)
 {
     if (pkt->cacheResponding())
         return 0;
@@ -355,13 +359,13 @@ NVMainMemory::MemoryPort::recvAtomic(PacketPtr pkt)
     /*
      * calculate the latency. Now it is only random number
      */
-    Tick latency = memory.lat;
+    gem5::Tick latency = memory.lat;
 
     if (memory.lat_var != 0)
-        latency += random_mt.random<Tick>(0, memory.lat_var);
+        latency += gem5::random_mt.random<gem5::Tick>(0, memory.lat_var);
 
     /*
-     *  if NVMain also needs the packet to warm up the inline cache, create the request
+     *  if NVMain also needs the gem5::Packet to warm up the inline cache, create the request
      */
     if( memory.NVMainWarmUp )
     {
@@ -403,22 +407,22 @@ NVMainMemory::MemoryPort::recvAtomic(PacketPtr pkt)
 
 
 void
-NVMainMemory::MemoryPort::recvFunctional(PacketPtr pkt)
+NVMainMemory::MemoryPort::recvFunctional(gem5::PacketPtr pkt)
 {
     pkt->pushLabel(memory.name());
 
     memory.doFunctionalAccess(pkt);
 
-    for( std::deque<PacketPtr>::iterator i = memory.responseQueue.begin();
+    for( std::deque<gem5::PacketPtr>::iterator i = memory.responseQueue.begin();
          i != memory.responseQueue.end(); ++i )
-        pkt->checkFunctional(*i);
+        pkt->trySatisfyFunctional(*i);
 
     pkt->popLabel();
 }
 
 
 bool
-NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
+NVMainMemory::MemoryPort::recvTimingReq(gem5::PacketPtr pkt)
 {
     /* added by Tao @ 01/24/2013, just copy the code from SimpleMemory */
     /// @todo temporary hack to deal with memory corruption issues until
@@ -433,8 +437,8 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
     }
 
     if (!pkt->isRead() && !pkt->isWrite()) {
-        DPRINTF(NVMain, "NVMainMemory: Received a packet that is neither read nor write.\n");
-        DPRINTF(NVMainMin, "NVMainMemory: Received a packet that is neither read nor write.\n");
+        DPRINTF(NVMain, "NVMainMemory: Received a gem5::Packet that is neither read nor write.\n");
+        DPRINTF(NVMainMin, "NVMainMemory: Received a gem5::Packet that is neither read nor write.\n");
 
         bool needsResponse = pkt->needsResponse();
 
@@ -525,7 +529,7 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
 
         memRequest->request = request;
         memRequest->packet = pkt;
-        memRequest->issueTick = curTick();
+        memRequest->issueTick = gem5::curTick();
         memRequest->atomic = false;
 
         DPRINTF(NVMain, "nvmain_mem.cc: Enqueued Mem request for 0x%x of type %s\n", request->address.GetPhysicalAddress( ), ((pkt->isRead()) ? "READ" : "WRITE") );
@@ -544,7 +548,7 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
             else
                 stepCycles = 1;
 
-            Tick nextWake = curTick() + memory.clock * static_cast<Tick>(stepCycles);
+            gem5::Tick nextWake = gem5::curTick() + memory.clock * static_cast<gem5::Tick>(stepCycles);
 
             DPRINTF(NVMain, "NVMainMemory: Next event: %d CurrentCycle: %d\n", nextEvent, currentCycle);
             DPRINTF(NVMain, "NVMainMemory: Rescheduled wake at %d after %d cycles\n", nextWake, stepCycles);
@@ -561,7 +565,7 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
             if( stepCycles == 0 || nextEvent < currentCycle )
                 stepCycles = 1;
 
-            Tick nextWake = curTick() + memory.clock * static_cast<Tick>(stepCycles);
+            gem5::Tick nextWake = gem5::curTick() + memory.clock * static_cast<gem5::Tick>(stepCycles);
 
             memory.nextEventCycle = nextEvent;
             memory.ScheduleClockEvent( nextWake );
@@ -571,8 +575,8 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
         memory.m_requests_outstanding++;
 
         /*
-         *  It seems gem5 will block until the packet gets a response, so create a copy of the request, so
-         *  the memory controller has it, then delete the original copy to respond to the packet.
+         *  It seems gem5 will block until the gem5::Packet gets a response, so create a copy of the request, so
+         *  the memory controller has it, then delete the original copy to respond to the gem5::Packet.
          */
         if( request->type == WRITE )
         {
@@ -581,7 +585,7 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
             requestCopy->request = new NVMainRequest( );
             *(requestCopy->request) = *request;
             requestCopy->packet = pkt;
-            requestCopy->issueTick = curTick();
+            requestCopy->issueTick = gem5::curTick();
             requestCopy->atomic = false;
 
             memRequest->packet = NULL;
@@ -625,29 +629,29 @@ NVMainMemory::MemoryPort::recvTimingReq(PacketPtr pkt)
 
 
 
-Tick NVMainMemory::doAtomicAccess(PacketPtr pkt)
+gem5::Tick NVMainMemory::doAtomicAccess(gem5::PacketPtr pkt)
 {
     access(pkt);
-    return static_cast<Tick>(m_avgAtomicLatency);
+    return static_cast<gem5::Tick>(m_avgAtomicLatency);
 }
 
 
 
-void NVMainMemory::doFunctionalAccess(PacketPtr pkt)
+void NVMainMemory::doFunctionalAccess(gem5::PacketPtr pkt)
 {
     functionalAccess(pkt);
 }
 
 
-DrainState NVMainMemory::drain()
+gem5::DrainState NVMainMemory::drain()
 {
     if( !masterInstance->m_request_map.empty() )
     {
-        return DrainState::Draining;
+        return gem5::DrainState::Draining;
     }
     else
     {
-        return DrainState::Drained;
+        return gem5::DrainState::Drained;
     }
 }
 
@@ -803,11 +807,11 @@ void NVMainMemory::CheckDrainState( )
 void NVMainMemory::ScheduleResponse( )
 {
     if( !respondEvent.scheduled( ) )
-        schedule(respondEvent, curTick() + clock);
+        schedule(respondEvent, gem5::curTick() + clock);
 }
 
 
-void NVMainMemory::ScheduleClockEvent( Tick nextWake )
+void NVMainMemory::ScheduleClockEvent( gem5::Tick nextWake )
 {
     if( !masterInstance->clockEvent.scheduled() )
         schedule(masterInstance->clockEvent, nextWake);
@@ -816,7 +820,7 @@ void NVMainMemory::ScheduleClockEvent( Tick nextWake )
 }
 
 
-void NVMainMemory::serialize(CheckpointOut &cp) const
+void NVMainMemory::serialize(gem5::CheckpointOut &cp) const
 {
     if (masterInstance != this)
         return;
@@ -835,7 +839,7 @@ void NVMainMemory::serialize(CheckpointOut &cp) const
 }
 
 
-void NVMainMemory::unserialize(CheckpointIn &cp)
+void NVMainMemory::unserialize(gem5::CheckpointIn &cp)
 {
     if (masterInstance != this)
         return;
@@ -860,13 +864,13 @@ void NVMainMemory::tick( )
     if (masterInstance == this)
     {
         /* Keep NVMain in sync with gem5. */
-        assert(curTick() >= lastWakeup);
-        ncycle_t stepCycles = (curTick() - lastWakeup) / clock;
+        assert(gem5::curTick() >= lastWakeup);
+        ncycle_t stepCycles = (gem5::curTick() - lastWakeup) / clock;
 
         DPRINTF(NVMain, "NVMainMemory: Stepping %d cycles\n", stepCycles);
         m_nvmainGlobalEventQueue->Cycle( stepCycles );
 
-        lastWakeup = curTick();
+        lastWakeup = gem5::curTick();
 
         ncycle_t nextEvent;
 
@@ -878,7 +882,7 @@ void NVMainMemory::tick( )
             assert(nextEvent >= currentCycle);
             stepCycles = nextEvent - currentCycle;
 
-            Tick nextWake = curTick() + clock * static_cast<Tick>(stepCycles);
+            gem5::Tick nextWake = gem5::curTick() + clock * static_cast<gem5::Tick>(stepCycles);
 
             DPRINTF(NVMain, "NVMainMemory: Next event: %d CurrentCycle: %d\n", nextEvent, currentCycle);
             DPRINTF(NVMain, "NVMainMemory: Schedule wake for %d\n", nextWake);
@@ -890,9 +894,9 @@ void NVMainMemory::tick( )
 }
 
 
-NVMainMemory *
-NVMainMemoryParams::create()
-{
-    return new NVMainMemory(this);
-}
+// NVMainMemory *
+// gem5::NVMainMemoryParams::create() const
+// {
+//     return new NVMainMemory(*this);
+// }
 

@@ -28,6 +28,7 @@ if build_type == None or build_type == "fast":
     env.Append(CCFLAGS='-Werror')
     env.Append(CCFLAGS='-Wall')
     env.Append(CCFLAGS='-Wextra')
+    env.Append(CCFLAGS='-Wno-deprecated-copy')
     env.Append(CCFLAGS='-Woverloaded-virtual')
     env.Append(CCFLAGS='-fPIC')
     env.Append(CCFLAGS='-std=c++0x')
