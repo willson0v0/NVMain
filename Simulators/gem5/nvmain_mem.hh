@@ -176,6 +176,9 @@ class NVMainMemory : public gem5::memory::AbstractMemory, public NVM::NVMObject
 
     gem5::ResponsePort& getSlavePort(const std::string& if_name,
                                 gem5::PortID idx = gem5::InvalidPortID);
+                                
+    gem5::Port &getPort(const std::string &if_name,
+                  gem5::PortID idx=gem5::InvalidPortID) override;
     void init();
     void startup();
     void wakeup();

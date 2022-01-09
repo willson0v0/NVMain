@@ -201,7 +201,7 @@ NVMainMemory::init()
         }
 
         /* Setup child and parent modules. */
-            ( m_nvmainPtr );
+        AddChild( m_nvmainPtr );
         m_nvmainPtr->SetParent( this );
         m_nvmainGlobalEventQueue->AddSystem( m_nvmainPtr, m_nvmainConfig );
         m_nvmainPtr->SetConfig( m_nvmainConfig );
@@ -249,6 +249,17 @@ NVMainMemory::getSlavePort(const std::string& if_name, gem5::PortID idx)
 {
     if (if_name != "port") {
         panic("MemObject::getSlavePort not available, if_name must be port");
+        // return MemObject::getSlavePort(if_name, idx);
+    } else {
+        return port;
+    }
+}
+
+gem5::Port &
+NVMainMemory::getPort(const std::string &if_name, gem5::PortID idx)
+{
+    if (if_name != "port") {
+        panic("MemObject::getSlavePort not available, if_name must be \"port\"");
         // return MemObject::getSlavePort(if_name, idx);
     } else {
         return port;
@@ -892,11 +903,4 @@ void NVMainMemory::tick( )
         }
     }
 }
-
-
-// NVMainMemory *
-// gem5::NVMainMemoryParams::create() const
-// {
-//     return new NVMainMemory(*this);
-// }
 
